@@ -1,17 +1,42 @@
 base_detection:
   ros__parameters:
 
-    # -- Tópicos (ajuste para sua câmera/stack) --
+    # Tópicos
     color_image_topic: "/drone1_espcam/image_raw/compressed"
     inferred_image_topic: "/base_detection/inferred_image"
     detected_coords_topic: "/base_detection/detected_coords"
     num_bases_topic: "/base_detection/num_bases"
     bool_detector_topic: "/base_detection/has_base"
 
-    # -- YOLO / Threshold --
-    yolo.model_path: "<share>/models/best.pt"   # resolve para share/<pkg>/models/best.pt
+    # Thresholds de score
+    square_score_threshold: 0.8
+    circle_score_threshold: 0.8
+
+    # Compat (mantido para não quebrar)
+    yolo.model_path: "<share>/models/best.pt"
     detection_threshold: 0.50
 
-    # -- HSV azul --
-    blue_hsv_lower: [100,  40,  80]
-    blue_hsv_upper: [135, 255, 255]
+    # HSV AZUL
+    blue_hsv_lower: [100.0, 40.0, 80.0]
+    blue_hsv_upper: [135.0, 255.0, 255.0]
+
+    # HSV AMARELO (faixa ampliada)
+    yellow_hsv_lower: [15.0, 40.0, 120.0]
+    yellow_hsv_upper: [35.0, 255.0, 255.0]
+
+    # Pré-processamento / morfologia
+    kernel_blur_size: 5
+    clahe_clip_limit: 2.0
+    clahe_tile_grid: 8
+    morph_open_k: 3
+    morph_close_k: 5
+
+    # Quadrados (azul)
+    min_square_area: 500.0
+    approx_epsilon_frac: 0.04
+
+    # Círculos (contornos)
+    min_circle_radius: 5
+    max_circle_radius: 300
+    min_circle_area: 50.0
+    min_circle_circularity: 0.8
