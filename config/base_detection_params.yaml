@@ -12,6 +12,6 @@ base_detection:
     yolo.model_path: "<share>/models/best.pt"   # resolve para share/<pkg>/models/best.pt
     detection_threshold: 0.50
 
-    # -- HSV (exemplo genérico; ajuste para sua base) --
-    hsv_lower: [20.0, 60.0, 60.0]
-    hsv_upper: [35.0, 255.0, 255.0]
+    # -- HSV azul --
+    blue_hsv_lower: [100,  40,  80]
+    blue_hsv_upper: [135, 255, 255]
