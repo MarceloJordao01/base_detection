@@ -2,38 +2,22 @@
 <package format="3">
   <name>base_detection</name>
   <version>0.0.1</version>
-  <description>The base_detection package for ROS 2</description>
-  <maintainer email="lufa@todo.todo">lufa</maintainer>
-  <license>Apache-2.0</license>
+  <description>ROS2 node for HSV + YOLO base detection.</description>
 
-  <author email="lufa@todo.todo">lufa</author>
+  <maintainer email="voce@example.com">Você</maintainer>
+  <license>MIT</license>
 
-  <!-- ROS 2 utiliza ament como sistema de construção, então catkin não é mais necessário -->
   <buildtool_depend>ament_python</buildtool_depend>
 
-  <!-- Dependências de compilação e execução -->
-  <!-- cv_bridge e outras dependências específicas do ROS 2 -->
-  <depend>cv_bridge</depend>
-  <depend>rclpy</depend>
-  <depend>sensor_msgs</depend>
-  <depend>std_msgs</depend>
-  <depend>px4_msgs</depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>cv_bridge</exec_depend>
 
-  <test_depend>ament_copyright</test_depend>
-  <!-- <test_depend>ament_flake8</test_depend>
-  <test_depend>ament_pep257</test_depend> -->
-  <test_depend>python3-pytest</test_depend>
-
-  <!-- Dependências para mensagens e serviços, caso seu pacote os defina -->
-  <!-- <depend>message_generation</depend> -->
-  <!-- <depend>message_runtime</depend> -->
-
-  <!-- Dependências de ferramentas de construção específicas, se necessário -->
-  <!-- <build_depend>python3-opencv</build_depend> -->
-  <!-- Para dependências Python ou outras dependências externas, considere usar um arquivo package.xml juntamente com um arquivo setup.py para instalação via pip -->
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
 
   <export>
-    <!-- Informação adicional para outras ferramentas -->
     <build_type>ament_python</build_type>
   </export>
 </package>

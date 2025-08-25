@@ -1,0 +1,17 @@
+base_detection:
+  ros__parameters:
+
+    # -- Tópicos (ajuste para sua câmera/stack) --
+    color_image_topic: "/drone1_espcam/image_raw/compressed"
+    inferred_image_topic: "/base_detection/inferred_image"
+    detected_coords_topic: "/base_detection/detected_coords"
+    num_bases_topic: "/base_detection/num_bases"
+    bool_detector_topic: "/base_detection/has_base"
+
+    # -- YOLO / Threshold --
+    yolo.model_path: "<share>/models/best.pt"   # resolve para share/<pkg>/models/best.pt
+    detection_threshold: 0.50
+
+    # -- HSV (exemplo genérico; ajuste para sua base) --
+    hsv_lower: [20.0, 60.0, 60.0]
+    hsv_upper: [35.0, 255.0, 255.0]
