@@ -9,11 +9,12 @@ base_detection:
     bool_detector_topic: "/base_detection/has_base"
 
     # Thresholds de score
-    square_score_threshold: 0.8
-    circle_score_threshold: 0.8
+    square_score_threshold: 0.008
+    circle_score_threshold: 0.002
+    yolo_conf_threshold: 0.25
 
-    # Compat (mantido para não quebrar)
-    yolo.model_path: "<share>/models/best.pt"
+    # Compat (mantido)
+    yolo.model_path: "/tello_ros_ws/install/base_detection/share/base_detection/models/best.pt"
     detection_threshold: 0.50
 
     # HSV AZUL
@@ -24,7 +25,7 @@ base_detection:
     yellow_hsv_lower: [15.0, 40.0, 120.0]
     yellow_hsv_upper: [35.0, 255.0, 255.0]
 
-    # Pré-processamento / morfologia
+    # Pré-processamento / morfologia (apenas para HSV; YOLO ignora)
     kernel_blur_size: 5
     clahe_clip_limit: 2.0
     clahe_tile_grid: 8
@@ -40,3 +41,13 @@ base_detection:
     max_circle_radius: 300
     min_circle_area: 50.0
     min_circle_circularity: 0.8
+
+    # YOLO (terceiro detector, sem pré-processamento)
+    enable_yolo: true
+    yolo.conf_threshold: 0.25
+    yolo.iou_threshold: 0.45
+    yolo.imgsz: 640
+    yolo.max_det: 300
+    yolo.classes: []      # pode ficar vazio, o node faz fallback seguro
+    yolo.device: "auto"
+    yolo.half: false
