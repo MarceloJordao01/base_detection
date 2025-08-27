@@ -6,11 +6,26 @@ base_detection:
     inferred_image_topic: "/base_detection/inferred_image"
     detected_coords_topic: "/base_detection/detected_coords"
     num_bases_topic: "/base_detection/num_bases"
-    bool_detector_topic: "/base_detection/has_base"
+
+    # ---------- Fusão ----------
+    # Habilita/desabilita a fusão de detecções por proximidade de centróides.
+    fusion.enable: true
+    # Distância máxima entre centróides para entrarem no mesmo cluster (em pixels).
+    fusion.max_dist_px: 40
+    # Distância máxima como fração da diagonal da imagem (ex.: 0.05 = 5%).
+    fusion.max_dist_frac: 0.05
+
+    # ---------- Bias por detector ----------
+    # Pesos multiplicativos aplicados à "confiança" de cada candidato
+    # APENAS para seleção do representante do cluster.
+    # Colocar 0.0 desabilita efetivamente a participação do detector na fusão.
+    bias.square: 1.0   # quadrados azuis
+    bias.circle: 1.0   # círculos amarelos
+    bias.yolo: 0.0     # YOLO (direto)
 
     # Thresholds de score
-    square_score_threshold: 0.008
-    circle_score_threshold: 0.002
+    square_score_threshold: 0.8
+    circle_score_threshold: 0.0001
     yolo_conf_threshold: 0.25
 
     # Compat (mantido)

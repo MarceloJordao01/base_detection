@@ -3,10 +3,6 @@ from glob import glob
 import os
 import sys
 
-# IMPORTANTÍSSIMO: NUNCA imprima em stdout no setup.py quando o colcon faz --dry-run.
-# Use sempre sys.stderr.write(...) para logs, senão o colcon quebra ao fazer ast.literal_eval.
-# Referências: impressão em setup.py pode interferir no colcon/--dry-run.  # noqa
-
 package_name = "base_detection"
 
 def eprint(msg: str):
@@ -29,33 +25,30 @@ for d in src_models_dirs:
         models_src.append((models_target_dir, files))
         found_files.extend(files)
 
-# Logs (sempre stderr!):
-if src_models_dirs:
-    eprint(f"[setup] procurando modelos em: {', '.join(src_models_dirs)}")
-else:
-    eprint("[setup] diretórios 'models/' ou 'model/' não encontrados.")
+# --- Coleta de arquivos de launch em 'launch/' ---
+launch_src = []
+launch_dir = "launch"
+launch_target_dir = os.path.join("share", package_name, "launch")
 
-if found_files:
-    eprint(f"[setup] {len(found_files)} arquivo(s) de modelo detectado(s):")
-    for f in found_files:
-        eprint(f"        - {f}")
-else:
-    eprint("[setup] AVISO: nenhum arquivo de modelo foi encontrado; nada será instalado em share/.../models/")
+# aceita .launch.py (padrão ROS2), .py e .xml (compatibilidade)
+launch_files = []
+if os.path.isdir(launch_dir):
+    patterns = ["*.launch.py", "*.py", "*.xml"]
+    for pat in patterns:
+        launch_files.extend(glob(os.path.join(launch_dir, pat)))
+    # garante que só arquivos reais vão
+    launch_files = [f for f in launch_files if os.path.isfile(f)]
+    if launch_files:
+        launch_src.append((launch_target_dir, launch_files))
 
-# --- data_files padrão + modelos ---
+# --- data_files padrão + modelos + launch ---
 data_files = [
     ("share/ament_index/resource_index/packages", [f"resource/{package_name}"]),
     (f"share/{package_name}", ["package.xml"]),
     (f"share/{package_name}/config", ["config/base_detection_params.yaml"]),
 ]
 data_files.extend(models_src)
-
-# Log do que será instalado (somente stderr)
-eprint("[setup] data_files ->")
-for target, files in data_files:
-    eprint(f"    - {target}")
-    for f in files:
-        eprint(f"        * {f}")
+data_files.extend(launch_src)
 
 setup(
     name=package_name,
@@ -81,7 +74,7 @@ setup(
         "console_scripts": [
             "base_detection_node = base_detection.base_detection_node:main",
             # utilitário de verificação pós-instalação:
-            "base_detection_check_install = base_detection.check_install:main",
+            # "base_detection_check_install = base_detection.check_install:main",
         ],
     },
 )
