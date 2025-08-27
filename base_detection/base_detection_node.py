@@ -30,6 +30,7 @@ class BaseDetectionNode(Node):
         self.declare_parameter('inferred_image_topic', '/base_detection/inferred_image')
         self.declare_parameter('detected_coords_topic', '/base_detection/detected_coords')
         self.declare_parameter('num_bases_topic', '/base_detection/num_bases')
+        self.declare_parameter('centroids_topic', '/base_detection/centroids')
 
         # HSV ranges
         self.declare_parameter('blue_hsv_lower', [100.0, 40.0, 80.0])
@@ -89,6 +90,7 @@ class BaseDetectionNode(Node):
         self.out_img_topic = self.get_parameter('inferred_image_topic').value
         self.out_coords_topic = self.get_parameter('detected_coords_topic').value
         self.out_count_topic = self.get_parameter('num_bases_topic').value
+        self.out_centroids_topic = self.get_parameter('centroids_topic').value  # novo
 
         self.lower_blue = clamp_hsv_triplet(self.get_parameter('blue_hsv_lower').value)
         self.upper_blue = clamp_hsv_triplet(self.get_parameter('blue_hsv_upper').value)
@@ -139,6 +141,8 @@ class BaseDetectionNode(Node):
         self.pub_image = self.create_publisher(Image, self.out_img_topic, 10)
         self.pub_coords = self.create_publisher(Float32MultiArray, self.out_coords_topic, 10)
         self.pub_count = self.create_publisher(Int32, self.out_count_topic, 10)
+        # novo: publisher de centróides
+        self.pub_centroids = self.create_publisher(Float32MultiArray, self.out_centroids_topic, 10)
 
         self.pub_debug_blue = self.create_publisher(Image, "/base_detection/debug_blue", 10)
         self.pub_debug_yellow = self.create_publisher(Image, "/base_detection/debug_yellow", 10)
@@ -153,7 +157,8 @@ class BaseDetectionNode(Node):
 
         self.get_logger().info(
             f"[base_detection] Fusão habilitada={self.fusion_enable} | "
-            f"bias(square,circle,yolo)=({self.bias_square},{self.bias_circle},{self.bias_yolo})"
+            f"bias(square,circle,yolo)=({self.bias_square},{self.bias_circle},{self.bias_yolo}) | "
+            f"centroids_topic={self.out_centroids_topic}"
         )
 
     # ------------------ utilidades de fusão ------------------
@@ -326,71 +331,78 @@ class BaseDetectionNode(Node):
         # ----------- Monta imagem anotada APENAS com as fusões -----------
         annotated = bgr.copy()
 
-        # ======= NOVA PUBLICAÇÃO DE COORDENADAS (formato x1,y1,x2,y2,score) =======
+        # ======= Publicação: bboxes no formato x1,y1,x2,y2,score =======
         frame_detections = []  # lista de [x1,y1,x2,y2,score]
+        # ======= Novo: centróides (cx, cy) achatados =======
+        centroids = []  # lista de [cx, cy]
 
         for c in fused:
             t = c["type"]
             d = c["data"]
 
             if t == 1:
-                # quadrado (usar bbox)
+                # quadrado (usar bbox e centroid do próprio detector)
                 x1 = float(d["x"])
                 y1 = float(d["y"])
                 x2 = float(d["x"] + d["w"])
                 y2 = float(d["y"] + d["h"])
                 score = float(d["score"])
+                cx_f = float(d["cx"])
+                cy_f = float(d["cy"])
 
                 # desenho
-                cx, cy = int(d["cx"]), int(d["cy"])
                 corners = d["corners"].astype(np.int32)
                 cv2.rectangle(annotated, (int(x1), int(y1)), (int(x2), int(y2)), self.blue_draw, 2)
                 cv2.polylines(annotated, [corners], True, self.blue_draw, 2)
-                cv2.circle(annotated, (cx, cy), 4, self.blue_draw, -1)
+                cv2.circle(annotated, (int(cx_f), int(cy_f)), 4, self.blue_draw, -1)
                 cv2.putText(annotated, f"{score:.2f}", (int(x1), max(0, int(y1)-6)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.blue_draw, 1, cv2.LINE_AA)
 
                 frame_detections.append([x1, y1, x2, y2, score])
+                centroids.append([cx_f, cy_f])
 
             elif t == 2:
-                # círculo → publica bbox do círculo
-                cx = float(d["x"])
-                cy = float(d["y"])
+                # círculo → publica bbox do círculo e usa centro do círculo
+                cx_f = float(d["x"])
+                cy_f = float(d["y"])
                 r  = float(d["r"])
                 score = float(d["score"])
-                x1 = cx - r
-                y1 = cy - r
-                x2 = cx + r
-                y2 = cy + r
+                x1 = cx_f - r
+                y1 = cy_f - r
+                x2 = cx_f + r
+                y2 = cy_f + r
 
                 # desenho
-                cv2.circle(annotated, (int(cx), int(cy)), int(r), self.yellow_draw, 2)
-                cv2.circle(annotated, (int(cx), int(cy)), 3, self.yellow_draw, -1)
-                cv2.putText(annotated, f"{score:.2f}", (max(0, int(cx - r)), max(0, int(cy - r - 6))),
+                cv2.circle(annotated, (int(cx_f), int(cy_f)), int(r), self.yellow_draw, 2)
+                cv2.circle(annotated, (int(cx_f), int(cy_f)), 3, self.yellow_draw, -1)
+                cv2.putText(annotated, f"{score:.2f}", (max(0, int(cx_f - r)), max(0, int(cy_f - r - 6))),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, self.yellow_draw, 1, cv2.LINE_AA)
 
                 frame_detections.append([x1, y1, x2, y2, score])
+                centroids.append([cx_f, cy_f])
 
             else:
-                # YOLO (usar bbox do modelo)
+                # YOLO (usar bbox do modelo e centroid do modelo)
                 x1 = float(d["x"])
                 y1 = float(d["y"])
                 x2 = float(d["x"] + d["w"])
                 y2 = float(d["y"] + d["h"])
                 score = float(d["conf"])
-                cx, cy = int(d["cx"]), int(d["cy"])
+                cx_f = float(d["cx"])
+                cy_f = float(d["cy"])
                 cls_id = int(d["class_id"])
                 label  = str(d.get("label", cls_id))
 
                 # desenho
                 cv2.rectangle(annotated, (int(x1), int(y1)), (int(x2), int(y2)), self.yolo_draw, 2)
-                cv2.circle(annotated, (cx, cy), 3, self.yolo_draw, -1)
+                cv2.circle(annotated, (int(cx_f), int(cy_f)), 3, self.yolo_draw, -1)
                 txt = f"{label} {score:.2f}"
                 (tw, th), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
                 cv2.rectangle(annotated, (int(x1), max(0, int(y1) - th - 4)), (int(x1 + tw + 4), int(y1)), self.yolo_draw, -1)
                 cv2.putText(annotated, txt, (int(x1 + 2), int(y1 - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
 
                 frame_detections.append([x1, y1, x2, y2, score])
+                centroids.append([cx_f, cy_f])
 
         # ----------- Publicações -----------
         # número total (após fusão)
@@ -401,6 +413,11 @@ class BaseDetectionNode(Node):
         if frame_detections:
             flat = [item for det in frame_detections for item in det]
             self.pub_coords.publish(Float32MultiArray(data=flat))
+
+        # apenas centróides [cx1, cy1, cx2, cy2, ...]
+        if centroids:
+            centroids_flat = [v for pair in centroids for v in pair]
+            self.pub_centroids.publish(Float32MultiArray(data=centroids_flat))
 
         # imagens
         self.pub_image.publish(self.bridge.cv2_to_imgmsg(annotated, encoding="bgr8"))
