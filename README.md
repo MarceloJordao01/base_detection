@@ -3,287 +3,114 @@
 ![License](https://img.shields.io/badge/License-MIT-blue.svg)![ROS Version](https://img.shields.io/badge/ROS-2%20Humble-blueviolet)![Python](https://img.shields.io/badge/Python-3.10-blue.svg)
 ![Computer Vision](https://img.shields.io/badge/CV-OpenCV-orange.svg)![YOLO](https://img.shields.io/badge/YOLO-v8-blueviolet.svg)
 
-This repository contains a ROS2-based solution for autonomous base detection and high-precision localization, primarily for robotics competitions. The system uses an Intel RealSense D435i camera for depth sensing and a sophisticated computer vision pipeline to detect and calculate the precise positions of multiple bases in a competition arena.
+Este repositório contém uma solução baseada em ROS2 para detecção autônoma de bases. O sistema utiliza uma camera OV2660 da espcam e cv2.
 
-## Repository Structure
+
+## Estrutura do repositorio
 
 ```
-/home/saraiva/pequi/uav_px4_simulator/ros_packages/base_detection
-├── base_detection/   # Main Python package source code
+/base_detection
+├── base_detection/              # Código-fonte principal em Python
 │   ├── __init__.py
-│   ├── base_detection.py       # Node for YOLO detection and centroid refinement
-│   ├── clustering.py           # Clustering algorithms (K-Means, etc.)
-│   ├── coordinate_processor.py # Node for clustering, state management, and feedback
-│   ├── coordinate_receiver.py  # Node for 3D projection, rotation, and correction
-│   ├── parameters.py           # ROS2 parameter declaration and management
-│   ├── utils.py                # Utility functions (outlier removal, etc.)
-│   ├── variables.py            # Central repository for topic names
-│   └── visualization.py        # RViz marker management
-├── config/             # YAML configuration files for nodes (Not yet used)
-├── launch/             # ROS2 launch files to start the system nodes
-├── resource/           # ament resource index
-├── test/               # Unit and integration tests (Not yet implemented)
-├── package.xml         # ROS2 package manifest
-├── README.md           # This documentation file
-└── setup.py            # Python package setup script
+│   ├── base_detection_node.py   # Nó principal ROS2 para detecção das bases
+│   ├── detectors/               # Algoritmos de detecção específicos
+│   │   ├── __init__.py
+│   │   ├── blue_squares.py      # Detector de quadrados azuis
+│   │   ├── yellow_circles.py    # Detector de círculos amarelos
+│   │   └── yolo_direct.py       # Detector usando YOLO diretamente
+│   ├── utils/                   # Funções auxiliares
+│   │   ├── __init__.py
+│   │   └── image_ops.py         # Operações de processamento de imagem
+├── config/                      # Arquivos de configuração YAML
+│   └── base_detection_params.yaml  # Parâmetros de detecção
+├── launch/                      # Arquivos de lançamento ROS2
+│   └── base_detection.launch.py # Launch file para inicializar o sistema
+├── models/                      # Modelos treinados
+│   └── best.pt                  # Modelo YOLO pré-treinado
+├── resource/                    # Índice de recursos do ament
+├── package.xml                  # Manifesto do pacote ROS2
+├── README.md                    # Documentação do pacote
+├── setup.cfg                    # Configurações adicionais de setup
+└── setup.py                     # Script de instalação do pacote Python
+
 ```
 
-## System Architecture
+## Arquitetura do sistema
 
-The system is composed of three main ROS2 nodes that work in concert to transform raw sensor data into a stable, accurate map of base positions. It features advanced techniques such as centroid refinement, robust depth sampling, and a feedback loop for in-flight error correction.
+### Visão geral
+O nó usa três detectores em paralelo (dois clássicos com HSV + um com YOLO). Depois, fundem as detecções com base na proximidade e em um peso (bias) por detector, publicando:
+ - imagem anotada,
+ - bounding boxes,
+ - centróides,
+ - contagem de alvos,
+ - três imagens de debug (uma por detector)
 
-### Component and Data Flow
+### Topicos (I/O)
 
-```mermaid
-graph TD
-    subgraph "Sensors"
-        direction LR
-        A(D435i RGB Camera)
-        D(D435i Depth Camera)
-        E(PX4 Flight Controller)
-    end
+#### Assinatura (input)
 
-    subgraph "ROS Nodes"
-        direction LR
-        B(Base Detection Node)
-        C(Coordinate Receiver Node)
-        F(Coordinate Processor Node)
-    end
-    
-    subgraph "Downstream"
-        direction LR
-        G(Navigation System)
-        H(RViz Visualization)
-    end
+ - `color_image_topic` (default: `/drone1_espcam/image_raw/compressed`)
+ 
+  Tipo: sensor_msgs/CompressedImage
 
-    A -- "RGB Image" --> B
-    D -- "Depth Image" --> C
-    E -- "Vehicle Position" --> C
-    E -- "Vehicle Attitude (Quat)" --> C
+#### Publicação (output)
 
-    B -- "Detected Coordinates<br/>(Refined Centroids)" --> C
-    
-    C -- "Absolute Points<br/>(Weighted)" --> F
-    C -- "High-Accuracy Points" --> F
-    
-    F -- "Confirmed Bases<br/>(Feedback Loop)" --> C
-    F -- "Unique Positions" --> G
-    
-    B -- "Debug Image" --> H
-    F -- "Visualization Markers" --> H
-```
+ - `inferred_image_topic` (default: /base_detection/inferred_image) → sensor_msgs/Image (bgr8)
+Imagem original anotada apenas com as detecções finais (após fusão).
 
-### Data Processing Timeline
+ - `detected_coords_topic` (default: /base_detection/detected_coords) → std_msgs/Float32MultiArray
+Vetor achatado no formato [x1,y1,x2,y2,score, …] por detecção.
 
-```mermaid
-sequenceDiagram
-    participant Camera as D435i RGB Camera
-    participant Depth as D435i Depth Camera
-    participant PX4 as Flight Controller
-    participant BDN as Base Detection Node
-    participant CRN as Coordinate Receiver Node
-    participant CPN as Coordinate Processor Node
-    participant Nav as Navigation System
+ - `num_bases_topic` (default: /base_detection/num_bases) → std_msgs/Int32
+Número de detecções após a fusão.
 
-    Note over Camera,Nav: System Operation Timeline
-    
-    Camera->>BDN: RGB Image
-    activate BDN
-    BDN->>BDN: HSV Color Filtering
-    BDN->>BDN: YOLO Inference
-    BDN->>BDN: Centroid Refinement on BBox
-    BDN->>CRN: Detected Coordinates (refined)
-    deactivate BDN
-    
-    activate CRN
-    Depth->>CRN: Depth Image
-    PX4->>CRN: Vehicle Telemetry (Position + Attitude)
-    CPN-->>CRN: Confirmed Bases (feedback loop)
-    
-    CRN->>CRN: 1. Depth Sampling (Median Filter)
-    CRN->>CRN: 2. Calculate 3D position in camera frame
-    CRN->>CRN: 3. Apply full 3D rotation (Roll, Pitch, Yaw)
-    CRN->>CRN: 4. Calculate error vector from Confirmed Bases
-    CRN->>CRN: 5. Apply correction to all points
-    CRN->>CRN: 6. Calculate quality weight for each point
-    
-    CRN->>CPN: Absolute Points (with weight in z-field)
-    opt Is High Accuracy (center of image)
-        CRN->>CPN: High Accuracy Point
-    end
-    deactivate CRN
-    
-    activate CPN
-    CPN->>CPN: Accumulate position measurements & weights
-    opt New High Accuracy Point
-        CPN->>CPN: Add to Confirmed Bases list
-        CPN->>CPN: Publish updated Confirmed Bases
-    end
+ - `centroids_topic` (default: /base_detection/centroids) → std_msgs/Float32MultiArray
+Vetor achatado [cx1,cy1, cx2,cy2, …] (útil para projeção 3D/tracking).
 
-    Note over CPN: On processing timer or event
-    
-    CPN->>CPN: Outlier rejection
-    CPN->>CPN: Weighted K-means clustering
-    
-    CPN->>Nav: Publish Unique Positions
-    CPN-->>CPN: Publish RViz markers
-    deactivate CPN
-    
-    Note over Camera,Nav: Process repeats continuously
-```
+#### Tópicos de debug (imagens por detector)
 
-## Key Components
+ - `/base_detection/debug_blue` → máscara/resultado do detector quadrados azuis (HSV).
 
-1.  **Base Detection Node**
-    -   Processes RGB images from the D435i camera.
-    -   Detects bases using a combination of HSV color filtering and a YOLO model.
-    -   **Performs centroid refinement on detected bounding boxes for higher 2D accuracy.**
-    -   Publishes the refined coordinates and a debug image for visualization.
+ - `/base_detection/debug_yellow` → máscara/resultado do detector círculos amarelos (HSV).
 
-2.  **Coordinate Receiver Node**
-    -   Subscribes to detected coordinates, depth images, vehicle telemetry (position and attitude), and a feedback topic of confirmed bases. Its key responsibilities include:
-        -   **Stabilizing depth readings** via neighborhood sampling (median filter).
-        -   Projecting 2D detections into 3D points relative to the camera.
-        -   **Applying full 3D rotation (roll, pitch, yaw)** to transform points into the world frame.
-        -   **Calculating and applying a position correction vector** based on re-detected confirmed bases.
-        -   **Assigning a quality weight** to each detection based on its distance from the image center.
-        -   Publishing absolute 3D points (with weight embedded in the z-coordinate) and high-accuracy points.
+ - `/base_detection/debug_yolo` → caixas e rótulos do YOLO.
 
-3.  **Coordinate Processor Node**
-    -   Acts as the system's memory and fusion center. It accumulates detections over time to produce a stable map of the bases. Its key responsibilities include:
-        -   **Managing a list of high-certainty "confirmed bases"**.
-        -   **Publishing the list of confirmed bases** as a feedback loop to the `CoordinateReceiver`.
-        -   Performing outlier rejection on accumulated points.
-        -   **Using a weighted K-Means algorithm** to find cluster centers, giving more importance to high-quality detections.
-        -   Publishing the final, unique base positions for the navigation system and for RViz visualization.
+### Fusão de detectores
+Depois de obter as listas de detecções, o nó monta uma lista de candidatos com:
+ - `type` (1=quadrado, 2=círculo, 3=yolo),
+ - `cx, cy,`
+ - `score` (confiança do detector),
+ - `score_eff` = score * bias_do_detector.
+
+A fusão é feita por agrupamento espacial (single-link-like):
+ - Agrupa centróides cuja distância euclidiana seja ≤
+`max(fusion.max_dist_px, fusion.max_dist_frac * diagonal_da_imagem)`.
+ - Para cada cluster, escolhe apenas uma detecção: a de maior score_eff.
+Assim, você pode priorizar um detector ajustando `bias.square`, `bias.circle`, `bias.yolo`.
+Se `fusion.enable=false`, não agrupa: publica todos os candidatos aprovados no bias.
 
 
-## ROS2 Topic Structure
+### Pré-processamento (aplicado somente aos detectores HSV)
 
-### Primary Topics
--   `base_detection/detected_coordinates` (`Float32MultiArray`): Publishes the refined 2D coordinates `[x1, y1, x2, y2, score]` of each detection.
--   `base_detection/absolute_points` (`Point`): Publishes the calculated 3D position of each base after rotation and correction. **The `z` field is used to carry the detection's quality weight (0.0 to 1.0).**
--   `base_detection/high_accuracy_point` (`Point`): Publishes the position of a base when it is detected in the center of the image, used to create a "confirmed base".
--   `base_detection/unique_positions` (`PoseArray`): Publishes the final, stable positions of all unique bases found by the system. This is the primary output for a navigation system.
--   `base_detection/confirmed_bases` (`PoseArray`): The feedback topic used by the `CoordinateProcessor` to send the current list of known bases back to the `CoordinateReceiver` for error correction.
+1. `gaussian_blur(kernel_blur_size)`
+2. `clahe_bgr(clip_limit, tile_grid)`
+3. `hsv_mask` com faixas configuráveis:
+   - `blue_hsv_lower/upper`
+   - `yellow_hsv_lower/upper`
+4. `morph_open_close(open_k, close_k)`
 
-### Sensor and Telemetry Inputs
--   `/camera/color/image_raw` (`Image`): RGB image from the camera.
--   `/camera/depth/image_rect_raw` (`Image`): Depth image from the camera.
--   `/fmu/out/vehicle_local_position` (`VehicleLocalPosition`): Used for vehicle position (x,y,z) and velocities.
--   `/fmu/out/vehicle_attitude` (`VehicleAttitude`): **Used for complete 3D orientation (quaternion) to correct for roll and pitch.**
+## Formatos publicados
 
-### Visualization Topics
--   `base_detection/inferred_image` (`Image`): The input image with detections, centroids, and bounding boxes drawn on it.
--   `base_detection/visualization_markers` (`MarkerArray`): Publishes various markers (raw points, cluster centers, ground truth) for visualization in RViz.
+ - `detected_coords_topic`:
+   - `Float32MultiArray` com `N` detecções → comprimento 5*N.
+  Cada detecção: `[x1, y1, x2, y2, score]` (em pixels).
 
-## Setup and Installation
+ - `centroids_topic`:
+   - `Float32MultiArray` com `N` centróides → comprimento 2*N.
+Cada centróide: `[cx, cy]` (em pixels).
 
-Se necessario, acesse o PC da Telma primeiro:
+- num_bases_topic: Int32 com `N`.
 
-ssh flying@200.137.220.91 -p 22454
-
-**jetson fica sempre da pqmec-galaxy**
-```bash
-ssh -XC orin2@172.16.2.233
-senha: orin2
-
-cd bringup 
-docker compose up (as vezes vc usa o do tmp)
-
-ros2 topic list
-
-rviz
-
-docker exec -it base_detection_container bash
-
-ls
-cd ros2_ws/src/base_detection
-ros2 topic list
-```
-1. **Prerequisites**
-
-   ```bash
-   # Install ROS2 dependencies
-   sudo apt install ros-<distro>-cv-bridge
-   sudo apt install ros-<distro>-sensor-msgs
-
-   # Install Python dependencies
-   pip install numpy opencv-python
-   ```
-2. **Clone the Repository**
-
-   ```bash
-   git clone https://github.com/yourusername/base_detection.git
-   cd base_detection
-   ```
-3. **Build the Package**
-
-   ```bash
-   colcon build
-   source install/setup.bash
-   ```
-
-## Running the System
-
-1. **Launch the Camera**
-
-   ```bash
-   ros2 launch realsense2_camera rs_launch.py
-   ```
-2. **Start Base Detection**
-
-   ```bash
-   ros2 run base_detection base_detection.py
-   ```
-3. **Start Coordinate Processing**
-
-   ```bash
-   ros2 run base_detection coordinate_receiver.py
-   ```
-
-## Testing and Validation
-
-### Unit Testing
-
-1. Test base detection accuracy:
-   ```bash
-   ros2 run base_detection test_detection.py
-   ```
-
-### System Validation
-
-1. **Static Testing**
-
-   - Place a known base at measured coordinates
-   - Compare system output with ground truth
-   - Verify depth calculations
-2. **Dynamic Testing**
-
-   - Test system with moving base
-   - Validate coordinate tracking
-   - Check failsafe triggers
-
-### Safety Features
-
-- Altitude failsafe trigger at -0.13m
-- Bounding box validation with 10% tolerance
-- Depth value sanity checks
-
-## Troubleshooting
-
-Common issues and solutions:
-
-1. Invalid depth values
-
-   - Check camera alignment
-   - Verify lighting conditions
-   - Ensure proper camera calibration
-2. Coordinate misalignment
-
-   - Verify camera intrinsic parameters
-   - Check bias values (current: x=0.1, y=0.1)
-   - Validate RGB-D alignment
 
 ## Contributing
 
